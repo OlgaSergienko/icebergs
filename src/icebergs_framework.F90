@@ -221,7 +221,7 @@ type :: icebergs_gridded
   integer :: id_melt_m_per_year=-1
   integer :: id_ocean_depth=-1
   integer :: id_melt_by_class=-1, id_melt_buoy_fl=-1, id_melt_eros_fl=-1, id_melt_conv_fl=-1
-  integer :: id_fl_parent_melt=-1, id_fl_child_melt=-1
+  integer :: id_fl_parent_melt=-1, id_fl_child_melt=-1, id_msk=-1
   !>@}
 
   real :: clipping_depth=0. !< The effective depth at which to clip the weight felt by the ocean [m].
@@ -1664,6 +1664,8 @@ endif
      'Y-stress on ice from atmosphere', 'N m^-2')
   grd%id_ocean_depth=register_diag_field('icebergs', 'Depth', axes, Time, &
      'Ocean Depth', 'm')
+  grd%id_msk=register_diag_field('icebergs', 'mask', axes, Time, &
+     'wet point mask', 'none')
   grd%id_melt_by_class=register_diag_field('icebergs', 'melt_by_class', axes3d, Time, &
      'Total ice melt (bergs+bits+FL_bits) by class (z-axis labels correspond to Southern hemisphere classes)', &
      'kg/(m^2*s)')
@@ -1688,9 +1690,9 @@ endif
   id_class=register_static_field('icebergs', 'area', axes, &
                'cell area', 'm^2')
   if (id_class>0) lerr=send_data(id_class, grd%area(grd%isc:grd%iec,grd%jsc:grd%jec))
-  id_class=register_static_field('icebergs', 'mask', axes, &
-               'wet point mask', 'none')
-  if (id_class>0) lerr=send_data(id_class, grd%msk(grd%isc:grd%iec,grd%jsc:grd%jec))
+  !id_class=register_static_field('icebergs', 'mask', axes, &
+  !             'wet point mask', 'none')
+  !if (id_class>0) lerr=send_data(id_class, grd%msk(grd%isc:grd%iec,grd%jsc:grd%jec))
   id_class=register_static_field('icebergs', 'ocean_depth_static', axes, &
                'ocean depth static', 'm')
   if (id_class>0) lerr=send_data(id_class, grd%ocean_depth(grd%isc:grd%iec,grd%jsc:grd%jec))
