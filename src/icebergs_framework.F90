@@ -62,6 +62,8 @@ logical :: break_bonds_on_sub_steps=.false.
 logical :: skip_first_outer_mts_step=.false.
 logical :: no_frac_first_ts=.false.
 logical :: footloose=.false. !< Turn footloose calving on/off
+logical :: coastal_drift_mask_fix=.false. !< If true, bergs have no surface gradient in coastal cells. Also, coastal_drift and tidal_drift
+                                          !! will apply to cells with grd%area=0., in addition to the usual dry (grd%msk=0) cells.
 
 !Public params !Niki: write a subroutine to expose these
 public nclasses,buffer_width,buffer_width_traj,buffer_width_bond_traj
@@ -72,7 +74,7 @@ public mts,save_bond_traj,ewsame,iceberg_bonds_on
 public dem, save_bond_forces, orig_dem_moment_of_inertia
 public short_step_mts_grounding, radius_based_drag
 public A68_test, A68_xdisp, A68_ydisp
-public footloose
+public footloose, coastal_drift_mask_fix
 
 !Public types
 public icebergs_gridded, xyt, iceberg, icebergs, buffer, bond, bond_xyt
@@ -844,7 +846,7 @@ namelist /icebergs_nml/ verbose, budget, halo,  traj_sample_hrs, initial_mass, t
          debug_write,cdrag_grounding,h_to_init_grounding,frac_thres_scaling,frac_thres_n,frac_thres_t,save_bond_traj,&
          remove_unused_bergs,force_convergence,explicit_inner_mts,convergence_tolerance,dem,ignore_tangential_force,poisson,&
          dem_spring_coef,dem_damping_coef,dem_beam_test,constant_interaction_LW,constant_length,constant_width,&
-         fl_init_child_xy_by_pe, footloose,displace_fl_bergs,&
+         fl_init_child_xy_by_pe, footloose,displace_fl_bergs,coastal_drift_mask_fix,&
          fl_style,fl_bits_erosion_to_bergy_bits, save_fl_traj,&
          new_berg_from_fl_bits_mass_thres,separate_distrib_for_n_hemisphere,&
          initial_mass_n, distribution_n, mass_scaling_n, initial_thickness_n,&

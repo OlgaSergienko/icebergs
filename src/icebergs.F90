@@ -58,7 +58,7 @@ use ice_bergs_framework, only: orig_dem_moment_of_inertia, no_frac_first_ts
 use ice_bergs_framework, only: A68_test, A68_xdisp, A68_ydisp
 use ice_bergs_framework, only: set_constant_interaction_length_and_width, skip_first_outer_mts_step
 use ice_bergs_framework, only: break_bonds_on_sub_steps
-use ice_bergs_framework, only: short_step_mts_grounding, radius_based_drag
+use ice_bergs_framework, only: short_step_mts_grounding, radius_based_drag, coastal_drift_mask_fix
 
 use ice_bergs_io,        only: ice_bergs_io_init, write_restart, write_trajectory, write_bond_trajectory
 use ice_bergs_io,        only: read_restart_bergs, read_restart_calving
@@ -4751,10 +4751,12 @@ subroutine interp_flds(grd, x, y, i, j, xi, yj, rx, ry, uo, vo, ui, vi, ua, va, 
   real, parameter :: ssh_coast=0.00
 #endif
   real :: hxm, hxp, ssh
+  real :: loc_msk(3,3)
   integer :: stderrunit
   integer :: ii, jj
   real :: p1x=322.67292, p2x=322.94692, p3x=322.86458, p1y=-55.01042, p2y=-55.01042, p3y=-54.93958
   real :: alpha, beta, gamma
+  logical :: skip_ssh=.false.
 
   ! Get the stderr unit number
   stderrunit = stderr()
@@ -4769,27 +4771,89 @@ subroutine interp_flds(grd, x, y, i, j, xi, yj, rx, ry, uo, vo, ui, vi, ua, va, 
   ua=bilin(grd, grd%ua, i, j, xi, yj)
   va=bilin(grd, grd%va, i, j, xi, yj)
 
-  ! The following block accelerates a berg away from coastlines towards open water
-  ! which is a bias needed to avoid piling up in coarse resolution models
+  if (coastal_drift_mask_fix) then
+    if (grd%coastal_drift > 0. .or. grd%tidal_drift > 0.) then
+
+      loc_msk(1:3,1:3) = grd%msk(i-1:i+1,j-1:j+1)
+      do jj = 1,3 ; do ii = 1,3
+        if (grd%area(i+ii-2,j+jj-2)==0.0) loc_msk(ii,jj) = 0.
+      enddo; enddo
+      if (any(loc_msk(:,:) == 0.)) skip_ssh=.true.
+    endif
+
+    if (grd%coastal_drift > 0.) then
+      ! If a cell to the west is land (msk=0), accelerate to the east, and vice versa.
+      uo = uo + grd%coastal_drift * ( loc_msk(2+1,2) - loc_msk(2-1,2) ) * loc_msk(2,2)
+      ui = ui + grd%coastal_drift * ( loc_msk(2+1,2) - loc_msk(2-1,2) ) * loc_msk(2,2)
+      ! If a cell to the south is land (msk=0), accelerate to the north, and vice versa.
+      vo = vo + grd%coastal_drift * ( loc_msk(2,2+1) - loc_msk(2,2-1) ) * loc_msk(2,2)
+      vi = vi + grd%coastal_drift * ( loc_msk(2,2+1) - loc_msk(2,2-1) ) * loc_msk(2,2)
+    endif
+
+    ! Stochastic acceleration to represent unresolved tidal and wave motions.
+    ! Note: this scheme should account for the time-step and have memory!
+    if (grd%tidal_drift > 0.) then
+      ! The acceleration is modulated to not move particles towards land cells.
+      du = ( min(0., rx) * loc_msk(2-1,2) + max(0., rx) * loc_msk(2+1,2) ) &
+        * ( 1. - loc_msk(2,2-1) * loc_msk(2,2+1) ) ! Do not apply in open ocean
+      dv = ( min(0., ry) * loc_msk(2,2-1) + max(0., ry) * loc_msk(2,2+1) ) &
+        * ( 1. - loc_msk(2-1,2) * loc_msk(2+1,2) ) ! Do not apply in open ocean
+      du = du * grd%tidal_drift * loc_msk(2,2)
+      dv = dv * grd%tidal_drift * loc_msk(2,2)
+      uo = uo + du
+      ui = ui + du
+      vo = vo + dv
+      vi = vi + dv
+    endif
+  else
+
+    ! The following block accelerates a berg away from coastlines towards open water
+    ! which is a bias needed to avoid piling up in coarse resolution models
+    if (grd%coastal_drift > 0.) then
+      ! If a cell to the west is land (msk=0), accelerate to the east, and vice versa.
+      uo = uo + grd%coastal_drift * ( grd%msk(i+1,j) - grd%msk(i-1,j) ) * grd%msk(i,j)
+      ui = ui + grd%coastal_drift * ( grd%msk(i+1,j) - grd%msk(i-1,j) ) * grd%msk(i,j)
+      ! If a cell to the south is land (msk=0), accelerate to the north, and vice versa.
+      vo = vo + grd%coastal_drift * ( grd%msk(i,j+1) - grd%msk(i,j-1) ) * grd%msk(i,j)
+      vi = vi + grd%coastal_drift * ( grd%msk(i,j+1) - grd%msk(i,j-1) ) * grd%msk(i,j)
+    endif
+
+    ! Stochastic acceleration to represent unresolved tidal and wave motions.
+    ! Note: this scheme should account for the time-step and have memory!
+    if (grd%tidal_drift > 0.) then
+      ! The acceleration is modulated to not move particles towards land cells.
+      du = ( min(0., rx) * grd%msk(i-1,j) + max(0., rx) * grd%msk(i+1,j) ) &
+        * ( 1. - grd%msk(i,j-1) * grd%msk(i,j+1) ) ! Do not apply in open ocean
+      dv = ( min(0., ry) * grd%msk(i,j-1) + max(0., ry) * grd%msk(i,j+1) ) &
+        * ( 1. - grd%msk(i-1,j) * grd%msk(i+1,j) ) ! Do not apply in open ocean
+      du = du * grd%tidal_drift * grd%msk(i,j)
+      dv = dv * grd%tidal_drift * grd%msk(i,j)
+      uo = uo + du
+      ui = ui + du
+      vo = vo + dv
+      vi = vi + dv
+    endif
+  endif
+
   if (grd%coastal_drift > 0.) then
     ! If a cell to the west is land (msk=0), accelerate to the east, and vice versa.
-    uo = uo + grd%coastal_drift * ( grd%msk(i+1,j) - grd%msk(i-1,j) ) * grd%msk(i,j)
-    ui = ui + grd%coastal_drift * ( grd%msk(i+1,j) - grd%msk(i-1,j) ) * grd%msk(i,j)
+    uo = uo + grd%coastal_drift * ( loc_msk(2+1,2) - loc_msk(2-1,2) ) * loc_msk(2,2)
+    ui = ui + grd%coastal_drift * ( loc_msk(2+1,2) - loc_msk(2-1,2) ) * loc_msk(2,2)
     ! If a cell to the south is land (msk=0), accelerate to the north, and vice versa.
-    vo = vo + grd%coastal_drift * ( grd%msk(i,j+1) - grd%msk(i,j-1) ) * grd%msk(i,j)
-    vi = vi + grd%coastal_drift * ( grd%msk(i,j+1) - grd%msk(i,j-1) ) * grd%msk(i,j)
+    vo = vo + grd%coastal_drift * ( loc_msk(2,2+1) - loc_msk(2,2-1) ) * loc_msk(2,2)
+    vi = vi + grd%coastal_drift * ( loc_msk(2,2+1) - loc_msk(2,2-1) ) * loc_msk(2,2)
   endif
 
   ! Stochastic acceleration to represent unresolved tidal and wave motions.
   ! Note: this scheme should account for the time-step and have memory!
   if (grd%tidal_drift > 0.) then
     ! The acceleration is modulated to not move particles towards land cells.
-    du = ( min(0., rx) * grd%msk(i-1,j) + max(0., rx) * grd%msk(i+1,j) ) &
-         * ( 1. - grd%msk(i,j-1) * grd%msk(i,j+1) ) ! Do not apply in open ocean
-    dv = ( min(0., ry) * grd%msk(i,j-1) + max(0., ry) * grd%msk(i,j+1) ) &
-         * ( 1. - grd%msk(i-1,j) * grd%msk(i+1,j) ) ! Do not apply in open ocean
-    du = du * grd%tidal_drift * grd%msk(i,j)
-    dv = dv * grd%tidal_drift * grd%msk(i,j)
+    du = ( min(0., rx) * loc_msk(2-1,2) + max(0., rx) * loc_msk(2+1,2) ) &
+         * ( 1. - loc_msk(2,2-1) * loc_msk(2,2+1) ) ! Do not apply in open ocean
+    dv = ( min(0., ry) * loc_msk(2,2-1) + max(0., ry) * loc_msk(2,2+1) ) &
+         * ( 1. - loc_msk(2-1,2) * loc_msk(2+1,2) ) ! Do not apply in open ocean
+    du = du * grd%tidal_drift * loc_msk(2,2)
+    dv = dv * grd%tidal_drift * loc_msk(2,2)
     uo = uo + du
     ui = ui + du
     vo = vo + dv
@@ -4873,6 +4937,10 @@ subroutine interp_flds(grd, x, y, i, j, xi, yj, rx, ry, uo, vo, ui, vi, ua, va, 
   !There are some issues with the boundaries ssh gradient calculation in a finite domain. This is a temporary fix
   if (ssh_x.ne.ssh_x) ssh_x=0.
   if (ssh_y.ne.ssh_y) ssh_y=0.
+
+  if (skip_ssh) then
+    ssh_x=0.0; ssh_y=0.0
+  endif
 
   if (((((uo.ne.uo) .or. (vo.ne.vo)) .or. ((ui.ne.ui) .or. (vi.ne.vi))) .or. &
        (((ua.ne.ua) .or. (va.ne.va)) .or. ((ssh_x.ne.ssh_x) .or. (ssh_y.ne.ssh_y)))) .or. &
