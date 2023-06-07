@@ -4835,31 +4835,6 @@ subroutine interp_flds(grd, x, y, i, j, xi, yj, rx, ry, uo, vo, ui, vi, ua, va, 
     endif
   endif
 
-  if (grd%coastal_drift > 0.) then
-    ! If a cell to the west is land (msk=0), accelerate to the east, and vice versa.
-    uo = uo + grd%coastal_drift * ( loc_msk(2+1,2) - loc_msk(2-1,2) ) * loc_msk(2,2)
-    ui = ui + grd%coastal_drift * ( loc_msk(2+1,2) - loc_msk(2-1,2) ) * loc_msk(2,2)
-    ! If a cell to the south is land (msk=0), accelerate to the north, and vice versa.
-    vo = vo + grd%coastal_drift * ( loc_msk(2,2+1) - loc_msk(2,2-1) ) * loc_msk(2,2)
-    vi = vi + grd%coastal_drift * ( loc_msk(2,2+1) - loc_msk(2,2-1) ) * loc_msk(2,2)
-  endif
-
-  ! Stochastic acceleration to represent unresolved tidal and wave motions.
-  ! Note: this scheme should account for the time-step and have memory!
-  if (grd%tidal_drift > 0.) then
-    ! The acceleration is modulated to not move particles towards land cells.
-    du = ( min(0., rx) * loc_msk(2-1,2) + max(0., rx) * loc_msk(2+1,2) ) &
-         * ( 1. - loc_msk(2,2-1) * loc_msk(2,2+1) ) ! Do not apply in open ocean
-    dv = ( min(0., ry) * loc_msk(2,2-1) + max(0., ry) * loc_msk(2,2+1) ) &
-         * ( 1. - loc_msk(2-1,2) * loc_msk(2+1,2) ) ! Do not apply in open ocean
-    du = du * grd%tidal_drift * loc_msk(2,2)
-    dv = dv * grd%tidal_drift * loc_msk(2,2)
-    uo = uo + du
-    ui = ui + du
-    vo = vo + dv
-    vi = vi + dv
-  endif
-
   if (ua.ne.ua) then
     if (mpp_pe().eq.9) then
       write(stderrunit,'(a3,32i7)') 'ua',(ii,ii=grd%isd,grd%ied)
